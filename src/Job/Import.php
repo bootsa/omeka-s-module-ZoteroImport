@@ -302,31 +302,53 @@ class Import extends AbstractJob
     /**
      * Cache selected resource classes.
      */
+    /**
+     * Get the namespace URIs for a vocabulary prefix as a list.
+     *
+     * Some vocabularies (e.g. schema.org) may be installed under more than
+     * one namespace URI (http/https). The API only accepts a single URI per
+     * search, so each one has to be searched separately.
+     *
+     * @param string|array $namespaceUris
+     * @return array
+     */
+    protected function getNamespaceUris($namespaceUris)
+    {
+        return array_values(array_filter((array) $namespaceUris, 'strlen'));
+    }
+
+    /**
+     * Cache the resource classes of the configured vocabularies.
+     */
     public function cacheResourceClasses()
     {
         $api = $this->getServiceLocator()->get('Omeka\ApiManager');
-        foreach ($this->vocabularies as $prefix => $namespaceUri) {
-            $classes = $api->search('resource_classes', [
-                'vocabulary_namespace_uri' => $namespaceUri,
-            ])->getContent();
-            foreach ($classes as $class) {
-                $this->resourceClasses[$prefix][$class->localName()] = $class;
+        foreach ($this->vocabularies as $prefix => $namespaceUris) {
+            foreach ($this->getNamespaceUris($namespaceUris) as $namespaceUri) {
+                $classes = $api->search('resource_classes', [
+                    'vocabulary_namespace_uri' => $namespaceUri,
+                ])->getContent();
+                foreach ($classes as $class) {
+                    $this->resourceClasses[$prefix][$class->localName()] = $class;
+                }
             }
         }
     }
 
     /**
-     * Cache selected properties.
+     * Cache the properties of the configured vocabularies.
      */
     public function cacheProperties()
     {
         $api = $this->getServiceLocator()->get('Omeka\ApiManager');
-        foreach ($this->vocabularies as $prefix => $namespaceUri) {
-            $properties = $api->search('properties', [
-                'vocabulary_namespace_uri' => $namespaceUri,
-            ])->getContent();
-            foreach ($properties as $property) {
-                $this->properties[$prefix][$property->localName()] = $property;
+        foreach ($this->vocabularies as $prefix => $namespaceUris) {
+            foreach ($this->getNamespaceUris($namespaceUris) as $namespaceUri) {
+                $properties = $api->search('properties', [
+                    'vocabulary_namespace_uri' => $namespaceUri,
+                ])->getContent();
+                foreach ($properties as $property) {
+                    $this->properties[$prefix][$property->localName()] = $property;
+                }
             }
         }
     }
