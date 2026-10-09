@@ -92,12 +92,42 @@ class Import extends AbstractJob
     protected $genericMapping;
 
     /**
-     * Terms (prefix:localName) whose values are stored as URI values rather
-     * than literals.
+     * Cached field defaults (data/mapping/field_defaults.json). Null until
+     * first needed.
+     *
+     * @var array|null
+     */
+    protected $fieldDefaults;
+
+    /**
+     * Directories searched for processors/ and types/ include files. Null
+     * until first needed.
+     *
+     * @var array|null
+     */
+    protected $includePaths;
+
+    /**
+     * Loaded include files, keyed "kind/name". A null value means the file
+     * was looked for and not found.
      *
      * @var array
      */
-    protected $uriTerms = ['bibo:uri', 'schema:url'];
+    protected $includes = [];
+
+    /**
+     * Resolved value builders keyed by Omeka data type.
+     *
+     * @var array
+     */
+    protected $typeBuilders = [];
+
+    /**
+     * Resolved Omeka data type names keyed by the name used in a mapping.
+     *
+     * @var array
+     */
+    protected $dataTypes = [];
 
     /**
      * Perform the import.
@@ -579,23 +609,22 @@ class Import extends AbstractJob
      */
     protected function buildMapping(array $data, $label)
     {
+        $ownExtra = $this->parseExtraMapping(isset($data['extra']) ? $data['extra'] : []);
         $mapping = [
             'resourceClass' => $this->parseTermList(
                 isset($data['resourceClass']) ? $data['resourceClass'] : []
             ),
-            'fields' => $this->parseTermMap(
-                isset($data['fields']) ? $data['fields'] : []
-            ),
-            'creators' => $this->parseTermMap(
-                isset($data['creators']) ? $data['creators'] : []
-            ),
-            'extra' => $this->mergeExtraMapping(
-                $this->getExtraMapping(),
-                $this->parseExtraMapping(isset($data['extra']) ? $data['extra'] : [])
-            ),
+            'fields' => $this->parseDefMap('fields', isset($data['fields']) ? $data['fields'] : []),
+            'creators' => $this->parseDefMap('creators', isset($data['creators']) ? $data['creators'] : []),
+            'extra' => $this->mergeExtraMapping($this->getExtraMapping(), $ownExtra),
         ];
-        $pairLists = array_merge([$mapping['resourceClass']], array_values($mapping['fields']), array_values($mapping['creators']));
-        $this->logUnknownPrefixes($label, $pairLists, $mapping['extra']);
+        $pairLists = [$mapping['resourceClass']];
+        foreach (['fields', 'creators'] as $section) {
+            foreach ($mapping[$section] as $def) {
+                $pairLists[] = $def['terms'];
+            }
+        }
+        $this->logUnknownPrefixes($label, $pairLists, $ownExtra);
         return $mapping;
     }
 
@@ -609,10 +638,12 @@ class Import extends AbstractJob
     protected function logUnknownPrefixes($label, array $pairLists, ?array $extra = null)
     {
         if ($extra) {
-            foreach ($extra['fields'] as $def) {
-                $pairLists[] = $def['terms'];
+            foreach (['fields', 'creators'] as $section) {
+                foreach ($extra[$section] as $def) {
+                    $pairLists[] = $def['terms'];
+                }
             }
-            foreach (array_merge(array_values($extra['creators']), array_values($extra['types'])) as $pairs) {
+            foreach ($extra['types'] as $pairs) {
                 $pairLists[] = $pairs;
             }
         }
@@ -648,8 +679,8 @@ class Import extends AbstractJob
     /**
      * Prepare the "extra" section of a mapping file.
      *
-     * Sections: fields (key => terms, or {terms, type, uriPrefix}), creators
-     * (key => terms) and types (CSL type => resource class terms).
+     * Sections: fields and creators (Extra key => field definition, see
+     * parseDefLayer()) and types (CSL type => resource class terms).
      *
      * @param mixed $data
      * @return array
@@ -660,24 +691,14 @@ class Import extends AbstractJob
         if (!is_array($data)) {
             return $extra;
         }
-        if (isset($data['fields']) && is_array($data['fields'])) {
-            foreach ($data['fields'] as $key => $def) {
-                $options = (is_array($def) && array_key_exists('terms', $def)) ? $def : ['terms' => $def];
-                $terms = $this->parseTermList($options['terms']);
-                if ($terms) {
-                    $extra['fields'][$this->normalizeExtraKey($key)] = [
-                        'terms' => $terms,
-                        'type' => (isset($options['type']) && 'uri' === $options['type']) ? 'uri' : 'literal',
-                        'uriPrefix' => isset($options['uriPrefix']) ? (string) $options['uriPrefix'] : '',
-                    ];
-                }
+        foreach (['fields', 'creators'] as $section) {
+            if (isset($data[$section]) && is_array($data[$section])) {
+                $extra[$section] = $this->parseDefMap('extra', $data[$section]);
             }
         }
-        foreach (['creators', 'types'] as $section) {
-            if (isset($data[$section])) {
-                foreach ($this->parseTermMap($data[$section]) as $key => $pairs) {
-                    $extra[$section][$this->normalizeExtraKey($key)] = $pairs;
-                }
+        if (isset($data['types'])) {
+            foreach ($this->parseTermMap($data['types']) as $key => $pairs) {
+                $extra['types'][$this->normalizeExtraKey($key)] = $pairs;
             }
         }
         return $extra;
@@ -709,6 +730,7 @@ class Import extends AbstractJob
         if (null === $this->extraMapping) {
             $data = $this->readJsonMapping($this->getMappingDir() . '/extra.json');
             $this->extraMapping = $this->parseExtraMapping($data);
+            $this->logUnknownPrefixes('extra.json', [], $this->extraMapping);
         }
         return $this->extraMapping;
     }
@@ -767,8 +789,8 @@ class Import extends AbstractJob
         if (null === $this->genericMapping) {
             $this->genericMapping = [
                 'classes' => $this->parseTermMap($this->readPhpMapping('item_type_map')),
-                'fields' => $this->parseTermMap($this->readPhpMapping('item_field_map')),
-                'creators' => $this->parseTermMap($this->readPhpMapping('creator_type_map')),
+                'fields' => $this->parseDefMap('fields', $this->readPhpMapping('item_field_map')),
+                'creators' => $this->parseDefMap('creators', $this->readPhpMapping('creator_type_map')),
             ];
         }
         return [
@@ -779,6 +801,448 @@ class Import extends AbstractJob
             'creators' => $this->genericMapping['creators'],
             'extra' => $this->getExtraMapping(),
         ];
+    }
+
+    /**
+     * Whether an array is a list (sequential integer keys from 0).
+     *
+     * @param array $array
+     * @return bool
+     */
+    protected function isList(array $array)
+    {
+        return !$array || array_keys($array) === range(0, count($array) - 1);
+    }
+
+    /**
+     * Parse a pipeline into a list of stages, each ['name' => string,
+     * 'options' => array]. A stage is a processor name, or an object with a
+     * "name" key whose other keys are the processor's options.
+     *
+     * @param mixed $raw
+     * @return array
+     */
+    protected function parseStages($raw)
+    {
+        if (is_string($raw) || (is_array($raw) && !$this->isList($raw))) {
+            $raw = [$raw];
+        }
+        $stages = [];
+        if (!is_array($raw)) {
+            return $stages;
+        }
+        foreach ($raw as $stage) {
+            if (is_string($stage) && '' !== $stage) {
+                $stages[] = ['name' => $stage, 'options' => []];
+            } elseif (is_array($stage) && isset($stage['name']) && is_string($stage['name'])) {
+                $name = $stage['name'];
+                unset($stage['name']);
+                $stages[] = ['name' => $name, 'options' => $stage];
+            }
+        }
+        return $stages;
+    }
+
+    /**
+     * Parse one layer of a field definition.
+     *
+     * A layer is a term string, a list of terms (shorthand for {"terms": ...}),
+     * or an object with any of: terms, type, language, pipeline. Only the keys
+     * that are present are returned, so layers can be merged.
+     *
+     * @param mixed $raw
+     * @return array
+     */
+    protected function parseDefLayer($raw)
+    {
+        if (is_string($raw) || (is_array($raw) && $this->isList($raw))) {
+            $raw = ['terms' => $raw];
+        }
+        $layer = [];
+        if (!is_array($raw)) {
+            return $layer;
+        }
+        if (array_key_exists('terms', $raw)) {
+            $layer['terms'] = $this->parseTermList($raw['terms']);
+        }
+        if (isset($raw['type']) && is_string($raw['type']) && '' !== $raw['type']) {
+            $layer['type'] = $raw['type'];
+        }
+        if (isset($raw['language']) && is_string($raw['language'])) {
+            $layer['lang'] = $raw['language'];
+        }
+        if (array_key_exists('pipeline', $raw)) {
+            $layer['pipeline'] = $this->parseStages($raw['pipeline']);
+        }
+        return $layer;
+    }
+
+    /**
+     * Merge a definition layer over a base definition. A pipeline replaces
+     * the inherited one, except that a "@default" stage is replaced by the
+     * inherited stages.
+     *
+     * @param array $base
+     * @param array $layer
+     * @return array
+     */
+    protected function mergeDefLayer(array $base, array $layer)
+    {
+        foreach (['terms', 'type', 'lang'] as $key) {
+            if (array_key_exists($key, $layer)) {
+                $base[$key] = $layer[$key];
+            }
+        }
+        if (array_key_exists('pipeline', $layer)) {
+            $pipeline = [];
+            foreach ($layer['pipeline'] as $stage) {
+                if ('@default' === $stage['name']) {
+                    $pipeline = array_merge($pipeline, $base['pipeline']);
+                } else {
+                    $pipeline[] = $stage;
+                }
+            }
+            $base['pipeline'] = $pipeline;
+        }
+        return $base;
+    }
+
+    /**
+     * Get the field defaults from data/mapping/field_defaults.json.
+     *
+     * Result: ['defaults' => layer, 'sections' => [section => [key => layer]]]
+     * where section is fields, creators or extra, and the key "*" applies to
+     * the whole section.
+     *
+     * @return array
+     */
+    protected function getFieldDefaults()
+    {
+        if (null === $this->fieldDefaults) {
+            $data = $this->readJsonMapping($this->getMappingDir() . '/field_defaults.json');
+            $data = $data ? $data : [];
+            $defaults = $this->parseDefLayer(isset($data['defaults']) ? $data['defaults'] : []);
+            unset($defaults['terms']);
+            $sections = [];
+            foreach (['fields', 'creators', 'extra'] as $section) {
+                $sections[$section] = [];
+                if (!isset($data[$section]) || !is_array($data[$section])) {
+                    continue;
+                }
+                foreach ($data[$section] as $key => $raw) {
+                    if ('*' !== $key && 'extra' === $section) {
+                        $key = $this->normalizeExtraKey($key);
+                    }
+                    $layer = $this->parseDefLayer($raw);
+                    unset($layer['terms']);
+                    $sections[$section][$key] = $layer;
+                }
+            }
+            $this->fieldDefaults = ['defaults' => $defaults, 'sections' => $sections];
+        }
+        return $this->fieldDefaults;
+    }
+
+    /**
+     * Resolve the final definition of a field: built-in base, then the
+     * global defaults, the section default, the field's own default and
+     * finally the item type mapping's layer.
+     *
+     * @param string $section fields, creators or extra
+     * @param string $key
+     * @param array $itemLayer
+     * @return array ['terms', 'type', 'lang', 'pipeline']
+     */
+    protected function resolveFieldDef($section, $key, array $itemLayer)
+    {
+        $defaults = $this->getFieldDefaults();
+        $def = ['terms' => [], 'type' => 'literal', 'lang' => null, 'pipeline' => []];
+        $layers = [
+            $defaults['defaults'],
+            isset($defaults['sections'][$section]['*']) ? $defaults['sections'][$section]['*'] : [],
+            isset($defaults['sections'][$section][$key]) ? $defaults['sections'][$section][$key] : [],
+            $itemLayer,
+        ];
+        foreach ($layers as $layer) {
+            $def = $this->mergeDefLayer($def, $layer);
+        }
+        return $def;
+    }
+
+    /**
+     * Parse a map of key => field definition, dropping fields with no terms.
+     *
+     * @param string $section fields, creators or extra
+     * @param mixed $map
+     * @return array key => resolved definition
+     */
+    protected function parseDefMap($section, $map)
+    {
+        $parsed = [];
+        if (!is_array($map)) {
+            return $parsed;
+        }
+        foreach ($map as $key => $raw) {
+            if ('extra' === $section) {
+                $key = $this->normalizeExtraKey($key);
+            }
+            $def = $this->resolveFieldDef($section, $key, $this->parseDefLayer($raw));
+            if ($def['terms']) {
+                $parsed[$key] = $def;
+            }
+        }
+        return $parsed;
+    }
+
+    /**
+     * Include a PHP file and return what it returns. Static so that a
+     * closure defined in the file is not bound to the job object.
+     *
+     * @param string $file
+     * @return mixed
+     */
+    private static function includeFile($file)
+    {
+        return require $file;
+    }
+
+    /**
+     * Get the directories searched for processors/ and types/ include files:
+     * data/mapping first, then any registered by other modules in their
+     * module config under zotero_import => include_paths.
+     *
+     * @return array
+     */
+    protected function getIncludePaths()
+    {
+        if (null === $this->includePaths) {
+            $this->includePaths = [$this->getMappingDir()];
+            $config = $this->getServiceLocator()->get('Config');
+            if (!empty($config['zotero_import']['include_paths']) && is_array($config['zotero_import']['include_paths'])) {
+                foreach ($config['zotero_import']['include_paths'] as $path) {
+                    if (is_string($path) && '' !== $path) {
+                        $this->includePaths[] = rtrim($path, '/\\');
+                    }
+                }
+            }
+        }
+        return $this->includePaths;
+    }
+
+    /**
+     * Load an include file ($kind/$name.php) that returns a callable.
+     *
+     * @param string $kind processors or types
+     * @param string $name
+     * @param bool $required Log a warning if not found
+     * @return callable|null
+     */
+    protected function getInclude($kind, $name, $required = true)
+    {
+        $key = $kind . '/' . $name;
+        if (array_key_exists($key, $this->includes)) {
+            return $this->includes[$key];
+        }
+        $logger = $this->getServiceLocator()->get('Omeka\Logger');
+        $callable = null;
+        if (is_string($name) && preg_match('/^[A-Za-z0-9_\-]+$/', $name)) {
+            foreach ($this->getIncludePaths() as $base) {
+                $file = $base . '/' . $kind . '/' . $name . '.php';
+                if (!is_readable($file)) {
+                    continue;
+                }
+                $result = self::includeFile($file);
+                if (is_callable($result)) {
+                    $callable = $result;
+                    break;
+                }
+                $logger->warn(sprintf('ZoteroImport: %s did not return a callable.', $file));
+            }
+        }
+        if (!$callable && $required) {
+            $logger->warn(sprintf('ZoteroImport: %s "%s" was not found in any include path.', $kind, $name));
+        }
+        return $this->includes[$key] = $callable;
+    }
+
+    /**
+     * Get the value builder for an Omeka data type. Looks for types/ files
+     * named after the type (":" becomes "_"), then after its family (the part
+     * before the first ":"), then types/default.php.
+     *
+     * @param string $type
+     * @return callable|null
+     */
+    protected function getTypeBuilder($type)
+    {
+        if (!array_key_exists($type, $this->typeBuilders)) {
+            $names = [preg_replace('/[^A-Za-z0-9_\-]+/', '_', $type)];
+            $pos = strpos($type, ':');
+            if (false !== $pos) {
+                $names[] = preg_replace('/[^A-Za-z0-9_\-]+/', '_', substr($type, 0, $pos));
+            }
+            $builder = null;
+            foreach ($names as $name) {
+                $builder = $this->getInclude('types', $name, false);
+                if ($builder) {
+                    break;
+                }
+            }
+            if (!$builder) {
+                $builder = $this->getInclude('types', 'default');
+            }
+            $this->typeBuilders[$type] = $builder;
+        }
+        return $this->typeBuilders[$type];
+    }
+
+    /**
+     * Resolve the data type named in a mapping to a data type registered in
+     * Omeka. Accepts the aliases text, uri, resource, item, itemset and
+     * media; any other name (e.g. one added by another module) is used as is.
+     * Unregistered types fall back to literal, with a warning.
+     *
+     * @param string $type
+     * @return string
+     */
+    protected function resolveDataType($type)
+    {
+        if (!isset($this->dataTypes[$type])) {
+            $aliases = [
+                'text' => 'literal',
+                'resource' => 'resource:item',
+                'item' => 'resource:item',
+                'itemset' => 'resource:itemset',
+                'item_set' => 'resource:itemset',
+                'media' => 'resource:media',
+            ];
+            $resolved = isset($aliases[$type]) ? $aliases[$type] : $type;
+            $manager = $this->getServiceLocator()->get('Omeka\DataTypeManager');
+            if (!$manager->has($resolved)) {
+                $this->getServiceLocator()->get('Omeka\Logger')->warn(sprintf(
+                    'ZoteroImport: data type "%s" is not registered on this site; importing those values as literal.',
+                    $resolved
+                ));
+                $resolved = 'literal';
+            }
+            $this->dataTypes[$type] = $resolved;
+        }
+        return $this->dataTypes[$type];
+    }
+
+    /**
+     * Build the context passed to processors and value builders.
+     *
+     * @param array $zoteroItem
+     * @param string $source field, creator or extra
+     * @param string $field The Zotero field, creator type or Extra key
+     * @return array
+     */
+    protected function getPipelineContext(array $zoteroItem, $source, $field)
+    {
+        $services = $this->getServiceLocator();
+        return [
+            'zoteroItem' => $zoteroItem,
+            'source' => $source,
+            'field' => $field,
+            'api' => $services->get('Omeka\ApiManager'),
+            'services' => $services,
+        ];
+    }
+
+    /**
+     * Run a value payload through a pipeline of processors.
+     *
+     * A processor is a closure returned by processors/{name}.php:
+     * function (array $payload, array $context, array $options). It returns
+     * the payload (modified), null/false to drop the value, or a list of
+     * payloads to split it into several values.
+     *
+     * @param array $stages
+     * @param array $payload
+     * @param array $context
+     * @return array List of payloads
+     */
+    protected function runPipeline(array $stages, array $payload, array $context)
+    {
+        $payloads = [$payload];
+        foreach ($stages as $stage) {
+            $processor = $this->getInclude('processors', $stage['name']);
+            if (!$processor) {
+                continue;
+            }
+            $next = [];
+            foreach ($payloads as $current) {
+                try {
+                    $result = $processor($current, $context, $stage['options']);
+                } catch (\Throwable $e) {
+                    $this->getServiceLocator()->get('Omeka\Logger')->warn(sprintf(
+                        'ZoteroImport: processor "%s" failed on "%s": %s',
+                        $stage['name'],
+                        $context['field'],
+                        $e->getMessage()
+                    ));
+                    $result = $current;
+                }
+                if (!is_array($result)) {
+                    continue;
+                }
+                if (array_key_exists('value', $result)) {
+                    $result = [$result];
+                }
+                foreach ($result as $item) {
+                    if (is_array($item) && array_key_exists('value', $item)) {
+                        $next[] = $item;
+                    }
+                }
+            }
+            $payloads = $next;
+            if (!$payloads) {
+                break;
+            }
+        }
+        return $payloads;
+    }
+
+    /**
+     * Add a value to an Omeka item: pick the first mapped property that
+     * exists on the site, run the pipeline, then build the Omeka value for
+     * the resulting data type.
+     *
+     * @param array $omekaItem
+     * @param array $def Resolved field definition
+     * @param mixed $value Raw Zotero value
+     * @param array $context
+     * @return array The Omeka item
+     */
+    protected function addMappedValue(array $omekaItem, array $def, $value, array $context)
+    {
+        $found = $this->findProperty($def['terms']);
+        if (!$found) {
+            return $omekaItem;
+        }
+        $property = $found[0];
+        $payload = [
+            'value' => is_string($value) ? $value : (string) $value,
+            'type' => $this->resolveDataType($def['type']),
+            'property' => $property->term(),
+            'lang' => $def['lang'],
+            'label' => null,
+            'resource_id' => null,
+        ];
+        foreach ($this->runPipeline($def['pipeline'], $payload, $context) as $result) {
+            $result['type'] = $this->resolveDataType(
+                isset($result['type']) && is_string($result['type']) ? $result['type'] : 'literal'
+            );
+            $builder = $this->getTypeBuilder($result['type']);
+            $built = $builder ? $builder($result, $context) : null;
+            if (!is_array($built)) {
+                continue;
+            }
+            $built['property_id'] = $property->id();
+            $omekaItem[$property->term()][] = $built;
+        }
+        return $omekaItem;
     }
 
     /**
@@ -858,20 +1322,12 @@ class Import extends AbstractJob
             if (!$value || !is_scalar($value) || !isset($fieldMap[$key])) {
                 continue;
             }
-            $found = $this->findProperty($fieldMap[$key]);
-            if (!$found) {
-                continue;
-            }
-            list($property, $term) = $found;
-            $valueObject = ['property_id' => $property->id()];
-            if (in_array($term, $this->uriTerms, true)) {
-                $valueObject['@id'] = $value;
-                $valueObject['type'] = 'uri';
-            } else {
-                $valueObject['@value'] = $value;
-                $valueObject['type'] = 'literal';
-            }
-            $omekaItem[$property->term()][] = $valueObject;
+            $omekaItem = $this->addMappedValue(
+                $omekaItem,
+                $fieldMap[$key],
+                $value,
+                $this->getPipelineContext($zoteroItem, 'field', $key)
+            );
         }
         return $omekaItem;
     }
@@ -903,16 +1359,12 @@ class Import extends AbstractJob
             if (!$name) {
                 continue;
             }
-            $found = $this->findProperty($creatorMap[$creatorType]);
-            if (!$found) {
-                continue;
-            }
-            list($property) = $found;
-            $omekaItem[$property->term()][] = [
-                '@value' => implode(' ', $name),
-                'property_id' => $property->id(),
-                'type' => 'literal',
-            ];
+            $omekaItem = $this->addMappedValue(
+                $omekaItem,
+                $creatorMap[$creatorType],
+                implode(' ', $name),
+                $this->getPipelineContext($zoteroItem, 'creator', $creatorType)
+            );
         }
         return $omekaItem;
     }
@@ -963,37 +1415,24 @@ class Import extends AbstractJob
             }
 
             if (isset($extra['creators'][$key])) {
-                $found = $this->findProperty($extra['creators'][$key]);
-                if ($found) {
-                    // "Last || First" => "First Last"
-                    $parts = array_values(array_filter(array_map('trim', explode('||', $value)), 'strlen'));
-                    $omekaItem[$found[0]->term()][] = [
-                        '@value' => implode(' ', array_reverse($parts)),
-                        'property_id' => $found[0]->id(),
-                        'type' => 'literal',
-                    ];
-                }
+                // "Last || First" => "First Last"
+                $parts = array_values(array_filter(array_map('trim', explode('||', $value)), 'strlen'));
+                $omekaItem = $this->addMappedValue(
+                    $omekaItem,
+                    $extra['creators'][$key],
+                    implode(' ', array_reverse($parts)),
+                    $this->getPipelineContext($zoteroItem, 'extra', $key)
+                );
                 continue;
             }
 
             if (isset($extra['fields'][$key]) && !isset($present[$key])) {
-                $def = $extra['fields'][$key];
-                $found = $this->findProperty($def['terms']);
-                if (!$found) {
-                    continue;
-                }
-                $valueObject = ['property_id' => $found[0]->id()];
-                if ('uri' === $def['type'] || in_array($found[1], $this->uriTerms, true)) {
-                    if ($def['uriPrefix'] && !preg_match('#^https?://#i', $value)) {
-                        $value = $def['uriPrefix'] . $value;
-                    }
-                    $valueObject['@id'] = $value;
-                    $valueObject['type'] = 'uri';
-                } else {
-                    $valueObject['@value'] = $value;
-                    $valueObject['type'] = 'literal';
-                }
-                $omekaItem[$found[0]->term()][] = $valueObject;
+                $omekaItem = $this->addMappedValue(
+                    $omekaItem,
+                    $extra['fields'][$key],
+                    $value,
+                    $this->getPipelineContext($zoteroItem, 'extra', $key)
+                );
             }
         }
         return $omekaItem;

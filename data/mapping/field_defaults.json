@@ -1,0 +1,25 @@
+{
+  "comment": "Base settings for every mapped field. These are layered, later layers overriding earlier ones: 'defaults' (all fields), then the section's '*' entry, then the entry for the specific Zotero field / creator type / normalized Extra key, then the item type mapping file's own entry. 'type' is an Omeka data type (literal, uri, resource:item, resource:itemset, resource:media, or one added by another module; aliases: text, resource, item, itemset, media). 'language' sets @language. 'pipeline' lists processors (files in processors/) run in order; a stage is a name or an object {\"name\": ..., <options>}. A pipeline replaces the inherited one, except that the stage \"@default\" is replaced by the inherited stages. Terms are not set here; they come from the item type files.",
+  "defaults": {
+    "type": "literal",
+    "pipeline": ["trim"]
+  },
+  "fields": {
+    "*": {},
+    "title": { "pipeline": ["@default", { "name": "normalize_whitespace", "keepNewlines": false }] },
+    "shortTitle": { "pipeline": ["@default", { "name": "normalize_whitespace", "keepNewlines": false }] },
+    "publicationTitle": { "pipeline": ["@default", { "name": "normalize_whitespace", "keepNewlines": false }] },
+    "journalAbbreviation": { "pipeline": ["@default", { "name": "normalize_whitespace", "keepNewlines": false }] },
+    "abstractNote": { "pipeline": ["@default", "html_to_text", "normalize_whitespace"] },
+    "extra": { "pipeline": ["@default", "normalize_whitespace"] },
+    "url": { "type": "uri" }
+  },
+  "creators": {
+    "*": { "pipeline": ["@default", { "name": "normalize_whitespace", "keepNewlines": false }] }
+  },
+  "extra": {
+    "*": {},
+    "wid": { "type": "uri", "pipeline": ["@default", { "name": "prefix", "prefix": "https://www.wikidata.org/entity/" }] },
+    "QID": { "type": "uri", "pipeline": ["@default", { "name": "prefix", "prefix": "https://www.wikidata.org/entity/" }] }
+  }
+}
