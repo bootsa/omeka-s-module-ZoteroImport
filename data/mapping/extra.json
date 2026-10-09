@@ -1,0 +1,43 @@
+{
+  "comment": "Terms for values held in Zotero's Extra field as 'Key: Value' lines (CSL variables, Zotero-Cita, etc.). Shared by all item types; an item type file may contain its own 'extra' section with the same structure to add to or override these. Keys are matched case-insensitively and ignore spaces/hyphens/underscores. Terms are tried in order until one exists on the site. A field entry is either a list of terms (literal value) or {terms, type: 'uri', uriPrefix}. Values in Extra never override a value already in the matching Zotero field. 'types' maps 'Type: <CSL type>' to resource classes and overrides the class from the item type. Creator values may be written 'Last || First'.",
+  "fields": {
+    "wid": {
+      "terms": ["schema:sameAs", "dcterms:identifier"],
+      "type": "uri",
+      "uriPrefix": "https://www.wikidata.org/entity/"
+    },
+    "QID": {
+      "terms": ["schema:sameAs", "dcterms:identifier"],
+      "type": "uri",
+      "uriPrefix": "https://www.wikidata.org/entity/"
+    },
+    "DOI": ["bibo:doi", "schema:identifier", "dcterms:identifier"],
+    "PMID": ["bibo:pmid", "schema:identifier", "dcterms:identifier"],
+    "PMCID": ["schema:identifier", "dcterms:identifier"],
+    "Status": ["bibo:status", "schema:creativeWorkStatus"],
+    "Submitted": ["dcterms:dateSubmitted"],
+    "Submitted Date": ["dcterms:dateSubmitted"],
+    "Reviewed Title": ["bibo:reviewOf", "schema:itemReviewed"],
+    "Chapter Number": ["bibo:chapter", "schema:position"],
+    "Archive Place": ["dcterms:spatial"],
+    "Event Date": ["dcterms:temporal", "schema:startDate"],
+    "Event Place": ["dcterms:spatial", "schema:location"],
+    "Original Date": ["dcterms:created", "schema:dateCreated"],
+    "Original Title": ["dcterms:alternative", "schema:alternateName"],
+    "Original Publisher": ["dcterms:publisher", "schema:publisher"],
+    "Original Publisher Place": ["dcterms:spatial", "schema:locationCreated"]
+  },
+  "creators": {
+    "Original Author": ["dcterms:creator", "schema:author"],
+    "Director": ["bibo:director", "schema:director", "dcterms:contributor"],
+    "Editorial Director": ["bibo:editor", "schema:editor", "dcterms:contributor"],
+    "Illustrator": ["schema:illustrator", "dcterms:contributor"]
+  },
+  "types": {
+    "figure": ["bibo:Image", "schema:ImageObject", "dctype:Image"],
+    "musical_score": ["schema:MusicComposition", "bibo:Document", "dctype:Text"],
+    "pamphlet": ["bibo:Document", "schema:CreativeWork", "dctype:Text"],
+    "review-book": ["schema:Review", "bibo:Article", "dctype:Text"],
+    "treaty": ["bibo:LegalDocument", "schema:Legislation", "dctype:Text"]
+  }
+}

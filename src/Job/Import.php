@@ -76,6 +76,14 @@ class Import extends AbstractJob
     protected $itemTypeMappings = [];
 
     /**
+     * Cached shared extra mapping (data/mapping/extra.json). Null until
+     * first needed.
+     *
+     * @var array|null
+     */
+    protected $extraMapping;
+
+    /**
      * Cached generic (legacy PHP) mappings, used when an item type has no
      * JSON mapping file. Null until first needed.
      *
@@ -213,6 +221,7 @@ class Import extends AbstractJob
             $oItem = $this->mapNameValues($zParentItem, $oItem);
             $oItem = $this->mapSubjectValues($zParentItem, $oItem);
             $oItem = $this->mapValues($zParentItem, $oItem);
+            $oItem = $this->mapExtra($zParentItem, $oItem);
             $oItem = $this->mapAttachment($zParentItem, $oItem);
             if (isset($zChildItems[$zParentItemKey])) {
                 foreach ($zChildItems[$zParentItemKey] as $zChildItem) {
@@ -536,63 +545,215 @@ class Import extends AbstractJob
     /**
      * Load and prepare the mapping for an item type.
      *
+     * Tries item_types/{itemType}.json, then item_types/_default.json, then
+     * the generic PHP mappings.
+     *
      * @param string $itemType
      * @return array
      */
     protected function loadItemTypeMapping($itemType)
     {
+        $dir = $this->getMappingDir() . '/item_types/';
+        $files = [];
         // Zotero item types are camelCase identifiers (e.g. journalArticle).
         // This also guards against path traversal.
         if (is_string($itemType) && preg_match('/^[A-Za-z][A-Za-z0-9]*$/', $itemType)) {
-            $data = $this->readJsonMapping(
-                $this->getMappingDir() . '/item_types/' . $itemType . '.json'
-            );
+            $files[] = $itemType . '.json';
+        }
+        $files[] = '_default.json';
+        foreach ($files as $file) {
+            $data = $this->readJsonMapping($dir . $file);
             if ($data) {
-                $mapping = [
-                    'resourceClass' => $this->parseTermList(
-                        isset($data['resourceClass']) ? $data['resourceClass'] : []
-                    ),
-                    'fields' => $this->parseTermMap(
-                        isset($data['fields']) ? $data['fields'] : []
-                    ),
-                    'creators' => $this->parseTermMap(
-                        isset($data['creators']) ? $data['creators'] : []
-                    ),
-                ];
-                $this->logUnknownPrefixes($itemType, $mapping);
-                return $mapping;
+                return $this->buildMapping($data, $file);
             }
         }
         return $this->getGenericMapping($itemType);
     }
 
     /**
-     * Log prefixes used in an item type mapping that prefixes.json does not define.
+     * Build a prepared mapping from decoded item type JSON.
      *
-     * @param string $itemType
-     * @param array $mapping
+     * @param array $data
+     * @param string $label Used in log messages
+     * @return array
      */
-    protected function logUnknownPrefixes($itemType, array $mapping)
+    protected function buildMapping(array $data, $label)
     {
-        $used = [];
-        foreach ($mapping['resourceClass'] as $pair) {
-            $used[$pair[0]] = true;
+        $mapping = [
+            'resourceClass' => $this->parseTermList(
+                isset($data['resourceClass']) ? $data['resourceClass'] : []
+            ),
+            'fields' => $this->parseTermMap(
+                isset($data['fields']) ? $data['fields'] : []
+            ),
+            'creators' => $this->parseTermMap(
+                isset($data['creators']) ? $data['creators'] : []
+            ),
+            'extra' => $this->mergeExtraMapping(
+                $this->getExtraMapping(),
+                $this->parseExtraMapping(isset($data['extra']) ? $data['extra'] : [])
+            ),
+        ];
+        $pairLists = array_merge([$mapping['resourceClass']], array_values($mapping['fields']), array_values($mapping['creators']));
+        $this->logUnknownPrefixes($label, $pairLists, $mapping['extra']);
+        return $mapping;
+    }
+
+    /**
+     * Log prefixes that prefixes.json does not define.
+     *
+     * @param string $label Name of the mapping file
+     * @param array $pairLists List of lists of [prefix, localName]
+     * @param array|null $extra Prepared extra mapping, if any
+     */
+    protected function logUnknownPrefixes($label, array $pairLists, ?array $extra = null)
+    {
+        if ($extra) {
+            foreach ($extra['fields'] as $def) {
+                $pairLists[] = $def['terms'];
+            }
+            foreach (array_merge(array_values($extra['creators']), array_values($extra['types'])) as $pairs) {
+                $pairLists[] = $pairs;
+            }
         }
-        foreach (['fields', 'creators'] as $section) {
-            foreach ($mapping[$section] as $pairs) {
-                foreach ($pairs as $pair) {
-                    $used[$pair[0]] = true;
-                }
+        $used = [];
+        foreach ($pairLists as $pairs) {
+            foreach ($pairs as $pair) {
+                $used[$pair[0]] = true;
             }
         }
         $unknown = array_diff(array_keys($used), array_keys($this->vocabularies));
         if ($unknown) {
             $this->getServiceLocator()->get('Omeka\Logger')->warn(sprintf(
-                'ZoteroImport: mapping for item type "%s" uses prefixes not defined in prefixes.json (%s); those terms will be skipped.',
-                $itemType,
+                'ZoteroImport: mapping "%s" uses prefixes not defined in prefixes.json (%s); those terms will be skipped.',
+                $label,
                 implode(', ', $unknown)
             ));
         }
+    }
+
+    /**
+     * Normalize an Extra key or CSL type for matching: lowercase, with runs
+     * of whitespace, underscores and hyphens collapsed to a single space
+     * ("Original-Date", "original_date" and "Original Date" all match).
+     *
+     * @param string $key
+     * @return string
+     */
+    protected function normalizeExtraKey($key)
+    {
+        return mb_strtolower(trim(preg_replace('/[\s_\-]+/u', ' ', (string) $key)));
+    }
+
+    /**
+     * Prepare the "extra" section of a mapping file.
+     *
+     * Sections: fields (key => terms, or {terms, type, uriPrefix}), creators
+     * (key => terms) and types (CSL type => resource class terms).
+     *
+     * @param mixed $data
+     * @return array
+     */
+    protected function parseExtraMapping($data)
+    {
+        $extra = ['fields' => [], 'creators' => [], 'types' => []];
+        if (!is_array($data)) {
+            return $extra;
+        }
+        if (isset($data['fields']) && is_array($data['fields'])) {
+            foreach ($data['fields'] as $key => $def) {
+                $options = (is_array($def) && array_key_exists('terms', $def)) ? $def : ['terms' => $def];
+                $terms = $this->parseTermList($options['terms']);
+                if ($terms) {
+                    $extra['fields'][$this->normalizeExtraKey($key)] = [
+                        'terms' => $terms,
+                        'type' => (isset($options['type']) && 'uri' === $options['type']) ? 'uri' : 'literal',
+                        'uriPrefix' => isset($options['uriPrefix']) ? (string) $options['uriPrefix'] : '',
+                    ];
+                }
+            }
+        }
+        foreach (['creators', 'types'] as $section) {
+            if (isset($data[$section])) {
+                foreach ($this->parseTermMap($data[$section]) as $key => $pairs) {
+                    $extra[$section][$this->normalizeExtraKey($key)] = $pairs;
+                }
+            }
+        }
+        return $extra;
+    }
+
+    /**
+     * Merge two prepared extra mappings; entries in $override win.
+     *
+     * @param array $base
+     * @param array $override
+     * @return array
+     */
+    protected function mergeExtraMapping(array $base, array $override)
+    {
+        return [
+            'fields' => array_replace($base['fields'], $override['fields']),
+            'creators' => array_replace($base['creators'], $override['creators']),
+            'types' => array_replace($base['types'], $override['types']),
+        ];
+    }
+
+    /**
+     * Get the shared extra mapping from data/mapping/extra.json.
+     *
+     * @return array
+     */
+    protected function getExtraMapping()
+    {
+        if (null === $this->extraMapping) {
+            $data = $this->readJsonMapping($this->getMappingDir() . '/extra.json');
+            $this->extraMapping = $this->parseExtraMapping($data);
+        }
+        return $this->extraMapping;
+    }
+
+    /**
+     * Split an Extra field into recognized "Key: Value" lines and the rest.
+     *
+     * Only lines whose key is in $knownKeys are extracted; everything else
+     * (free text, URLs, unrecognized keys) is left in "remaining" so it can
+     * still be mapped as the Extra note.
+     *
+     * @param string $extra
+     * @param array $knownKeys Normalized keys
+     * @return array ['recognized' => [[key, value], ...], 'remaining' => string]
+     */
+    protected function parseExtra($extra, array $knownKeys)
+    {
+        $recognized = [];
+        $remaining = [];
+        foreach (preg_split('/\R/u', (string) $extra) as $line) {
+            if (preg_match('/^\s*([A-Za-z][A-Za-z _\-]*?)\s*:\s*(.+?)\s*$/u', $line, $m)) {
+                $key = $this->normalizeExtraKey($m[1]);
+                if (in_array($key, $knownKeys, true)) {
+                    $recognized[] = [$key, $m[2]];
+                    continue;
+                }
+            }
+            $remaining[] = $line;
+        }
+        return ['recognized' => $recognized, 'remaining' => trim(implode("\n", $remaining))];
+    }
+
+    /**
+     * Get the Extra keys a mapping recognizes.
+     *
+     * @param array $mapping
+     * @return array
+     */
+    protected function getExtraKnownKeys(array $mapping)
+    {
+        return array_merge(
+            array_keys($mapping['extra']['fields']),
+            array_keys($mapping['extra']['creators']),
+            ['type']
+        );
     }
 
     /**
@@ -616,6 +777,7 @@ class Import extends AbstractJob
                 : [],
             'fields' => $this->genericMapping['fields'],
             'creators' => $this->genericMapping['creators'],
+            'extra' => $this->getExtraMapping(),
         ];
     }
 
@@ -685,8 +847,14 @@ class Import extends AbstractJob
         if (!isset($zoteroItem['data'])) {
             return $omekaItem;
         }
-        $fieldMap = $this->getItemTypeMapping($zoteroItem)['fields'];
-        foreach ($zoteroItem['data'] as $key => $value) {
+        $mapping = $this->getItemTypeMapping($zoteroItem);
+        $fieldMap = $mapping['fields'];
+        $data = $zoteroItem['data'];
+        // Lines extracted by mapExtra() are not repeated in the Extra note.
+        if (!empty($data['extra']) && is_string($data['extra'])) {
+            $data['extra'] = $this->parseExtra($data['extra'], $this->getExtraKnownKeys($mapping))['remaining'];
+        }
+        foreach ($data as $key => $value) {
             if (!$value || !is_scalar($value) || !isset($fieldMap[$key])) {
                 continue;
             }
@@ -745,6 +913,88 @@ class Import extends AbstractJob
                 'property_id' => $property->id(),
                 'type' => 'literal',
             ];
+        }
+        return $omekaItem;
+    }
+
+    /**
+     * Map identifiers, dates, names and the item class held in the Extra
+     * field ("Key: Value" lines, as used by Zotero, CSL and Zotero-Cita).
+     *
+     * Following Zotero's rules, values in Extra do not override a value that
+     * is already in the matching Zotero field; "Type:" overrides the class.
+     *
+     * @param array $zoteroItem The Zotero item data
+     * @param array $omekaItem The Omeka item data
+     * @return array
+     */
+    public function mapExtra(array $zoteroItem, array $omekaItem)
+    {
+        if (empty($zoteroItem['data']['extra']) || !is_string($zoteroItem['data']['extra'])) {
+            return $omekaItem;
+        }
+        $mapping = $this->getItemTypeMapping($zoteroItem);
+        $extra = $mapping['extra'];
+        $parsed = $this->parseExtra($zoteroItem['data']['extra'], $this->getExtraKnownKeys($mapping));
+        if (!$parsed['recognized']) {
+            return $omekaItem;
+        }
+
+        // Zotero fields that already hold a value (normalized names).
+        $present = [];
+        foreach ($zoteroItem['data'] as $key => $value) {
+            if (is_scalar($value) && '' !== (string) $value) {
+                $present[$this->normalizeExtraKey(preg_replace('/(?<=[a-z])(?=[A-Z])/', ' ', $key))] = true;
+            }
+        }
+
+        foreach ($parsed['recognized'] as $entry) {
+            list($key, $value) = $entry;
+
+            if ('type' === $key) {
+                $typeKey = $this->normalizeExtraKey($value);
+                if (isset($extra['types'][$typeKey])) {
+                    $class = $this->findResourceClass($extra['types'][$typeKey]);
+                    if ($class) {
+                        $omekaItem['o:resource_class'] = ['o:id' => $class->id()];
+                    }
+                }
+                continue;
+            }
+
+            if (isset($extra['creators'][$key])) {
+                $found = $this->findProperty($extra['creators'][$key]);
+                if ($found) {
+                    // "Last || First" => "First Last"
+                    $parts = array_values(array_filter(array_map('trim', explode('||', $value)), 'strlen'));
+                    $omekaItem[$found[0]->term()][] = [
+                        '@value' => implode(' ', array_reverse($parts)),
+                        'property_id' => $found[0]->id(),
+                        'type' => 'literal',
+                    ];
+                }
+                continue;
+            }
+
+            if (isset($extra['fields'][$key]) && !isset($present[$key])) {
+                $def = $extra['fields'][$key];
+                $found = $this->findProperty($def['terms']);
+                if (!$found) {
+                    continue;
+                }
+                $valueObject = ['property_id' => $found[0]->id()];
+                if ('uri' === $def['type'] || in_array($found[1], $this->uriTerms, true)) {
+                    if ($def['uriPrefix'] && !preg_match('#^https?://#i', $value)) {
+                        $value = $def['uriPrefix'] . $value;
+                    }
+                    $valueObject['@id'] = $value;
+                    $valueObject['type'] = 'uri';
+                } else {
+                    $valueObject['@value'] = $value;
+                    $valueObject['type'] = 'literal';
+                }
+                $omekaItem[$found[0]->term()][] = $valueObject;
+            }
         }
         return $omekaItem;
     }
