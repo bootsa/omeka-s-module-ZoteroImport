@@ -1,0 +1,10 @@
+{
+  "comment": "Shared prefix definitions for the Zotero to Omeka S mapping files. Each prefix maps to one or more namespace URIs; vocabularies are matched to the Omeka S site by namespace URI, not by the site's own prefix. List alternatives (e.g. http/https) in one array.",
+  "prefixes": {
+    "dcterms": ["http://purl.org/dc/terms/"],
+    "dctype": ["http://purl.org/dc/dcmitype/"],
+    "bibo": ["http://purl.org/ontology/bibo/"],
+    "foaf": ["http://xmlns.com/foaf/0.1/"],
+    "schema": ["http://schema.org/", "https://schema.org/"]
+  }
+}

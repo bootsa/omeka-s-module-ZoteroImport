@@ -25,11 +25,23 @@ class Import extends AbstractJob
     protected $url;
 
     /**
-     * Vocabularies to cache.
+     * Vocabularies to cache: prefix => list of namespace URIs.
+     *
+     * Loaded from data/mapping/prefixes.json by loadVocabularies(). The
+     * prefixes only have meaning inside the mapping files; vocabularies are
+     * matched to the site by namespace URI, never by the site's own prefix.
      *
      * @var array
      */
-    protected $vocabularies = [
+    protected $vocabularies = [];
+
+    /**
+     * Built-in prefixes, used if data/mapping/prefixes.json is missing or
+     * invalid.
+     *
+     * @var array
+     */
+    protected $defaultVocabularies = [
         'dcterms' => ['http://purl.org/dc/terms/'],
         'dctype' => ['http://purl.org/dc/dcmitype/'],
         'bibo' => ['http://purl.org/ontology/bibo/'],
@@ -110,8 +122,10 @@ class Import extends AbstractJob
 
         $itemSet = $api->read('item_sets', $this->getArg('itemSet'))->getContent();
 
+        $this->loadVocabularies();
         $this->cacheResourceClasses();
         $this->cacheProperties();
+        $this->logMissingVocabularies();
 
         $this->setImportClient();
         $this->setImportUrl();
@@ -303,6 +317,47 @@ class Import extends AbstractJob
      * Cache selected resource classes.
      */
     /**
+     * Load the prefix => namespace URI definitions from the shared
+     * data/mapping/prefixes.json, falling back to the built-in defaults.
+     */
+    protected function loadVocabularies()
+    {
+        $this->vocabularies = [];
+        $data = $this->readJsonMapping($this->getMappingDir() . '/prefixes.json');
+        if ($data && isset($data['prefixes']) && is_array($data['prefixes'])) {
+            foreach ($data['prefixes'] as $prefix => $namespaceUris) {
+                $namespaceUris = $this->getNamespaceUris($namespaceUris);
+                if ($namespaceUris) {
+                    $this->vocabularies[$prefix] = $namespaceUris;
+                }
+            }
+        }
+        if (!$this->vocabularies) {
+            $this->getServiceLocator()->get('Omeka\Logger')->warn(
+                'ZoteroImport: prefixes.json is missing or invalid; using built-in prefixes.'
+            );
+            $this->vocabularies = $this->defaultVocabularies;
+        }
+    }
+
+    /**
+     * Log the configured vocabularies that are not installed on this site.
+     */
+    protected function logMissingVocabularies()
+    {
+        $logger = $this->getServiceLocator()->get('Omeka\Logger');
+        foreach ($this->vocabularies as $prefix => $namespaceUris) {
+            if (empty($this->resourceClasses[$prefix]) && empty($this->properties[$prefix])) {
+                $logger->warn(sprintf(
+                    'ZoteroImport: vocabulary "%s" (%s) is not installed on this site; mappings using it will be skipped.',
+                    $prefix,
+                    implode(', ', $namespaceUris)
+                ));
+            }
+        }
+    }
+
+    /**
      * Get the namespace URIs for a vocabulary prefix as a list.
      *
      * Some vocabularies (e.g. schema.org) may be installed under more than
@@ -493,7 +548,7 @@ class Import extends AbstractJob
                 $this->getMappingDir() . '/item_types/' . $itemType . '.json'
             );
             if ($data) {
-                return [
+                $mapping = [
                     'resourceClass' => $this->parseTermList(
                         isset($data['resourceClass']) ? $data['resourceClass'] : []
                     ),
@@ -504,9 +559,40 @@ class Import extends AbstractJob
                         isset($data['creators']) ? $data['creators'] : []
                     ),
                 ];
+                $this->logUnknownPrefixes($itemType, $mapping);
+                return $mapping;
             }
         }
         return $this->getGenericMapping($itemType);
+    }
+
+    /**
+     * Log prefixes used in an item type mapping that prefixes.json does not define.
+     *
+     * @param string $itemType
+     * @param array $mapping
+     */
+    protected function logUnknownPrefixes($itemType, array $mapping)
+    {
+        $used = [];
+        foreach ($mapping['resourceClass'] as $pair) {
+            $used[$pair[0]] = true;
+        }
+        foreach (['fields', 'creators'] as $section) {
+            foreach ($mapping[$section] as $pairs) {
+                foreach ($pairs as $pair) {
+                    $used[$pair[0]] = true;
+                }
+            }
+        }
+        $unknown = array_diff(array_keys($used), array_keys($this->vocabularies));
+        if ($unknown) {
+            $this->getServiceLocator()->get('Omeka\Logger')->warn(sprintf(
+                'ZoteroImport: mapping for item type "%s" uses prefixes not defined in prefixes.json (%s); those terms will be skipped.',
+                $itemType,
+                implode(', ', $unknown)
+            ));
+        }
     }
 
     /**
