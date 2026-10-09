@@ -1,0 +1,144 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "radioBroadcast",
+  "label": "Radio Broadcast",
+  "resourceClass": [
+    "bibo:AudioDocument",
+    "schema:RadioEpisode",
+    "dctype:Sound"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "programTitle": [
+      "dcterms:isPartOf",
+      "schema:isPartOf"
+    ],
+    "episodeNumber": [
+      "bibo:number",
+      "schema:episodeNumber"
+    ],
+    "audioRecordingFormat": [
+      "dcterms:format",
+      "schema:encodingFormat"
+    ],
+    "network": [
+      "dcterms:publisher",
+      "schema:broadcastChannel"
+    ],
+    "place": [
+      "dcterms:spatial",
+      "schema:locationCreated"
+    ],
+    "date": [
+      "dcterms:date",
+      "schema:datePublished"
+    ],
+    "runningTime": [
+      "dcterms:extent",
+      "schema:duration"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "archive": [
+      "dcterms:source",
+      "schema:provider"
+    ],
+    "archiveLocation": [
+      "dcterms:source"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "language": [
+      "dcterms:language",
+      "schema:inLanguage"
+    ],
+    "libraryCatalog": [
+      "dcterms:source"
+    ],
+    "callNumber": [
+      "bibo:lccn",
+      "dcterms:identifier"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "creator": [
+      "dcterms:creator",
+      "schema:creator",
+      "foaf:maker"
+    ],
+    "host": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ],
+    "guest": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ],
+    "producer": [
+      "bibo:producer",
+      "schema:producer"
+    ],
+    "executiveProducer": [
+      "bibo:producer",
+      "schema:producer"
+    ],
+    "seriesCreator": [
+      "dcterms:creator",
+      "schema:creator"
+    ],
+    "director": [
+      "bibo:director",
+      "schema:director"
+    ],
+    "scriptwriter": [
+      "schema:author",
+      "dcterms:contributor"
+    ],
+    "castMember": [
+      "schema:actor",
+      "bibo:performer",
+      "dcterms:contributor"
+    ],
+    "translator": [
+      "bibo:translator",
+      "schema:translator"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ]
+  }
+}

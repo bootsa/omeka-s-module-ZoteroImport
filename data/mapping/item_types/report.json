@@ -1,0 +1,133 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "report",
+  "label": "Report",
+  "resourceClass": [
+    "bibo:Report",
+    "schema:Report",
+    "dctype:Text"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "reportNumber": [
+      "bibo:number",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "reportType": [
+      "dcterms:type",
+      "schema:genre"
+    ],
+    "institution": [
+      "dcterms:publisher",
+      "schema:publisher"
+    ],
+    "place": [
+      "dcterms:spatial",
+      "schema:locationCreated"
+    ],
+    "date": [
+      "dcterms:date",
+      "schema:datePublished"
+    ],
+    "seriesTitle": [
+      "dcterms:isPartOf",
+      "schema:isPartOf"
+    ],
+    "seriesNumber": [
+      "bibo:number",
+      "schema:position"
+    ],
+    "pages": [
+      "bibo:pages",
+      "schema:pagination"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "ISBN": [
+      "bibo:isbn",
+      "schema:isbn"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "ISSN": [
+      "bibo:issn",
+      "schema:issn"
+    ],
+    "archive": [
+      "dcterms:source",
+      "schema:provider"
+    ],
+    "archiveLocation": [
+      "dcterms:source"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "language": [
+      "dcterms:language",
+      "schema:inLanguage"
+    ],
+    "libraryCatalog": [
+      "dcterms:source"
+    ],
+    "callNumber": [
+      "bibo:lccn",
+      "dcterms:identifier"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "author": [
+      "dcterms:creator",
+      "schema:author",
+      "foaf:maker"
+    ],
+    "editor": [
+      "bibo:editor",
+      "schema:editor",
+      "dcterms:contributor"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ],
+    "translator": [
+      "bibo:translator",
+      "schema:translator"
+    ],
+    "seriesEditor": [
+      "bibo:editor",
+      "schema:editor"
+    ]
+  }
+}

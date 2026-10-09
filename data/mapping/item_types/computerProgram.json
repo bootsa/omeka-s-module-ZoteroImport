@@ -1,0 +1,108 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "computerProgram",
+  "label": "Software",
+  "resourceClass": [
+    "dctype:Software",
+    "schema:SoftwareApplication",
+    "bibo:Document"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "seriesTitle": [
+      "dcterms:isPartOf",
+      "schema:isPartOf"
+    ],
+    "versionNumber": [
+      "schema:version",
+      "bibo:number",
+      "dcterms:hasVersion"
+    ],
+    "date": [
+      "dcterms:date",
+      "schema:datePublished"
+    ],
+    "system": [
+      "dcterms:medium",
+      "schema:operatingSystem"
+    ],
+    "company": [
+      "dcterms:publisher",
+      "schema:publisher"
+    ],
+    "place": [
+      "dcterms:spatial",
+      "schema:locationCreated"
+    ],
+    "programmingLanguage": [
+      "schema:programmingLanguage",
+      "dcterms:description"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "ISBN": [
+      "bibo:isbn",
+      "schema:isbn"
+    ],
+    "archive": [
+      "dcterms:source",
+      "schema:provider"
+    ],
+    "archiveLocation": [
+      "dcterms:source"
+    ],
+    "libraryCatalog": [
+      "dcterms:source"
+    ],
+    "callNumber": [
+      "bibo:lccn",
+      "dcterms:identifier"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "programmer": [
+      "dcterms:creator",
+      "schema:creator",
+      "foaf:maker"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ]
+  }
+}

@@ -1,0 +1,102 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "presentation",
+  "label": "Presentation",
+  "resourceClass": [
+    "bibo:Slideshow",
+    "schema:PresentationDigitalDocument",
+    "dctype:Text"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "presentationType": [
+      "dcterms:type",
+      "schema:genre"
+    ],
+    "date": [
+      "dcterms:date",
+      "schema:datePublished"
+    ],
+    "meetingName": [
+      "bibo:presentedAt",
+      "schema:superEvent"
+    ],
+    "place": [
+      "dcterms:spatial",
+      "schema:location"
+    ],
+    "series": [
+      "dcterms:isPartOf",
+      "schema:isPartOf"
+    ],
+    "sessionTitle": [
+      "bibo:presentedAt",
+      "schema:isPartOf"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "language": [
+      "dcterms:language",
+      "schema:inLanguage"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "presenter": [
+      "dcterms:creator",
+      "schema:performer",
+      "foaf:maker"
+    ],
+    "chair": [
+      "bibo:organizer",
+      "schema:organizer",
+      "dcterms:contributor"
+    ],
+    "organizer": [
+      "bibo:organizer",
+      "schema:organizer"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ],
+    "translator": [
+      "bibo:translator",
+      "schema:translator"
+    ]
+  }
+}

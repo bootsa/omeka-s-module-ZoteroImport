@@ -1,0 +1,97 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "statute",
+  "label": "Statute",
+  "resourceClass": [
+    "bibo:Statute",
+    "schema:Legislation",
+    "dctype:Text"
+  ],
+  "fields": {
+    "nameOfAct": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "code": [
+      "dcterms:isPartOf",
+      "schema:isPartOf"
+    ],
+    "codeNumber": [
+      "bibo:number",
+      "schema:identifier"
+    ],
+    "publicLawNumber": [
+      "bibo:number",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "dateEnacted": [
+      "dcterms:issued",
+      "schema:datePublished"
+    ],
+    "pages": [
+      "bibo:pages",
+      "schema:pagination"
+    ],
+    "section": [
+      "bibo:section"
+    ],
+    "session": [
+      "bibo:presentedAt",
+      "schema:superEvent"
+    ],
+    "history": [
+      "dcterms:relation",
+      "bibo:cites"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "language": [
+      "dcterms:language",
+      "schema:inLanguage"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "author": [
+      "dcterms:creator",
+      "schema:author",
+      "foaf:maker"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ]
+  }
+}

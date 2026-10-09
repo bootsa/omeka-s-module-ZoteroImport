@@ -1,0 +1,95 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "artwork",
+  "label": "Artwork",
+  "resourceClass": [
+    "bibo:Image",
+    "schema:VisualArtwork",
+    "dctype:StillImage"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "artworkMedium": [
+      "dcterms:medium",
+      "schema:artMedium"
+    ],
+    "artworkSize": [
+      "dcterms:extent",
+      "schema:size"
+    ],
+    "date": [
+      "dcterms:date",
+      "schema:datePublished"
+    ],
+    "eventPlace": [
+      "dcterms:spatial",
+      "schema:location"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "archive": [
+      "dcterms:publisher",
+      "schema:provider"
+    ],
+    "archiveLocation": [
+      "dcterms:source"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "language": [
+      "dcterms:language",
+      "schema:inLanguage"
+    ],
+    "libraryCatalog": [
+      "dcterms:source"
+    ],
+    "callNumber": [
+      "bibo:lccn",
+      "dcterms:identifier"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "artist": [
+      "dcterms:creator",
+      "schema:creator",
+      "foaf:maker"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ]
+  }
+}

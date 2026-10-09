@@ -1,0 +1,24 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "attachment",
+  "label": "Attachment",
+  "resourceClass": [
+    "bibo:Document",
+    "schema:MediaObject",
+    "dctype:Text"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ]
+  },
+  "creators": {}
+}

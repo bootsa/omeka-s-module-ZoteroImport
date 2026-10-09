@@ -1,0 +1,89 @@
+{
+  "comment": "Zotero to Omeka S mapping for this item type. Terms are tried in order until a matching vocabulary class or property exists on the site (bibo, dcterms, foaf, schema, dctype). Mapping is not one-to-one.",
+  "itemType": "webpage",
+  "label": "Web Page",
+  "resourceClass": [
+    "bibo:Webpage",
+    "schema:WebPage",
+    "dctype:Text"
+  ],
+  "fields": {
+    "title": [
+      "dcterms:title",
+      "schema:name"
+    ],
+    "abstractNote": [
+      "dcterms:abstract",
+      "bibo:abstract",
+      "schema:abstract"
+    ],
+    "websiteTitle": [
+      "dcterms:isPartOf",
+      "schema:isPartOf"
+    ],
+    "websiteType": [
+      "dcterms:type",
+      "schema:genre"
+    ],
+    "date": [
+      "dcterms:date",
+      "schema:datePublished"
+    ],
+    "publisher": [
+      "dcterms:publisher",
+      "schema:publisher"
+    ],
+    "place": [
+      "dcterms:spatial",
+      "schema:locationCreated"
+    ],
+    "DOI": [
+      "bibo:doi",
+      "schema:identifier",
+      "dcterms:identifier"
+    ],
+    "citationKey": [
+      "bibo:identifier",
+      "dcterms:identifier"
+    ],
+    "url": [
+      "schema:url",
+      "bibo:uri"
+    ],
+    "accessDate": [
+      "dcterms:available"
+    ],
+    "shortTitle": [
+      "bibo:shortTitle",
+      "dcterms:alternative",
+      "schema:alternateName"
+    ],
+    "language": [
+      "dcterms:language",
+      "schema:inLanguage"
+    ],
+    "rights": [
+      "dcterms:rights",
+      "schema:license"
+    ],
+    "extra": [
+      "dcterms:description",
+      "schema:description"
+    ]
+  },
+  "creators": {
+    "author": [
+      "dcterms:creator",
+      "schema:author",
+      "foaf:maker"
+    ],
+    "contributor": [
+      "dcterms:contributor",
+      "schema:contributor"
+    ],
+    "translator": [
+      "bibo:translator",
+      "schema:translator"
+    ]
+  }
+}

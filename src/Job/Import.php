@@ -30,9 +30,11 @@ class Import extends AbstractJob
      * @var array
      */
     protected $vocabularies = [
-        'dcterms' => 'http://purl.org/dc/terms/',
-        'dctype' => 'http://purl.org/dc/dcmitype/',
-        'bibo' => 'http://purl.org/ontology/bibo/',
+        'dcterms' => ['http://purl.org/dc/terms/'],
+        'dctype' => ['http://purl.org/dc/dcmitype/'],
+        'bibo' => ['http://purl.org/ontology/bibo/'],
+        'foaf' => ['http://xmlns.com/foaf/0.1/'],
+        'schema' => ['http://schema.org/', 'https://schema.org/'],
     ];
 
     /**
@@ -50,25 +52,32 @@ class Import extends AbstractJob
     protected $properties = [];
 
     /**
-     * Priority map between Zotero item types and Omeka resource classes
+     * Cached per-item-type mappings keyed by Zotero item type.
+     *
+     * Each entry has the keys resourceClass (list of [prefix, localName]),
+     * fields (Zotero field => list of [prefix, localName]) and creators
+     * (Zotero creator type => list of [prefix, localName]). Each list is in
+     * priority order: the first term that exists on the site is used.
      *
      * @var array
      */
-    protected $itemTypeMap = [];
+    protected $itemTypeMappings = [];
 
     /**
-     * Priority map between Zotero item fields and Omeka properties
+     * Cached generic (legacy PHP) mappings, used when an item type has no
+     * JSON mapping file. Null until first needed.
      *
-     * @var array
+     * @var array|null
      */
-    protected $itemFieldMap = [];
+    protected $genericMapping;
 
     /**
-     * Priority map between Zotero creator types and Omeka properties
+     * Terms (prefix:localName) whose values are stored as URI values rather
+     * than literals.
      *
      * @var array
      */
-    protected $creatorTypeMap = [];
+    protected $uriTerms = ['bibo:uri', 'schema:url'];
 
     /**
      * Perform the import.
@@ -103,10 +112,6 @@ class Import extends AbstractJob
 
         $this->cacheResourceClasses();
         $this->cacheProperties();
-
-        $this->itemTypeMap = $this->prepareMapping('item_type_map');
-        $this->itemFieldMap = $this->prepareMapping('item_field_map');
-        $this->creatorTypeMap = $this->prepareMapping('creator_type_map');
 
         $this->setImportClient();
         $this->setImportUrl();
@@ -160,9 +165,12 @@ class Import extends AbstractJob
                     // that the timezone must be UTC.
                     continue;
                 }
-                $itemAlreadyImported = $api->search('zotero_import_items', ['zoteroKey' => $zItem['key']])->getContent()[0];
-                if ($this->getArg('matchingPoint', 1) && $itemAlreadyImported) {
-                    $zItem['oId'] = $itemAlreadyImported->item()->id();
+                $zItem['oId'] = null;
+                if ($this->getArg('matchingPoint', 1)) {
+                    $importedItems = $api->search('zotero_import_items', ['zoteroKey' => $zItem['key']])->getContent();
+                    if (!empty($importedItems)) {
+                        $zItem['oId'] = reset($importedItems)->item()->id();
+                    }
                 }
 
                 // Unset unneeded data to save memory.
@@ -197,7 +205,7 @@ class Import extends AbstractJob
                     $oItem = $this->mapAttachment($zChildItem, $oItem);
                 }
             }
-            if ($zParentItem['oId']) {
+            if (!empty($zParentItem['oId'])) {
                 $oItemsToUpdate[$zParentItem['oId']] = $oItem;
                 $oItemsToUpdate[$zParentItem['oId']]['zKey'] = $zParentItemKey;
             } else {
@@ -206,6 +214,8 @@ class Import extends AbstractJob
             // Unset unneeded data to save memory.
             unset($zParentItems[$zParentItemKey]);
         }
+        // Break the reference left over from the foreach loop above.
+        unset($zParentItem);
 
         // Batch create Omeka items.
         $importId = $this->getArg('import');
@@ -322,23 +332,217 @@ class Import extends AbstractJob
     }
 
     /**
-     * Convert a mapping with terms into a mapping with prefix and local name.
+     * Get the directory containing the mapping files.
      *
-     * @param string $mapping
+     * @return string
+     */
+    protected function getMappingDir()
+    {
+        return dirname(dirname(__DIR__)) . '/data/mapping';
+    }
+
+    /**
+     * Parse a "prefix:localName" term into a [prefix, localName] pair.
+     *
+     * @param mixed $term
+     * @return array|null Null if the term is not valid
+     */
+    protected function parseTerm($term)
+    {
+        if (!is_string($term)) {
+            return null;
+        }
+        $parts = explode(':', trim($term), 2);
+        if (count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+            return null;
+        }
+        return [$parts[0], $parts[1]];
+    }
+
+    /**
+     * Parse a term, or a list of terms, into a list of [prefix, localName]
+     * pairs, preserving priority order and dropping invalid entries.
+     *
+     * @param string|array|null $terms
      * @return array
      */
-    protected function prepareMapping($mapping)
+    protected function parseTermList($terms)
     {
-        $map = require dirname(dirname(__DIR__)) . '/data/mapping/' . $mapping . '.php';
-        foreach ($map as &$term) {
-            if ($term) {
-                $value = explode(':', $term);
-                $term = [$value[0] => $value[1]];
-            } else {
-                $term = [];
+        if (!is_array($terms)) {
+            $terms = [$terms];
+        }
+        $pairs = [];
+        foreach ($terms as $term) {
+            $pair = $this->parseTerm($term);
+            if ($pair) {
+                $pairs[] = $pair;
             }
         }
-        return $map;
+        return $pairs;
+    }
+
+    /**
+     * Parse a map of key => term(s) into key => list of pairs.
+     *
+     * @param mixed $map
+     * @return array
+     */
+    protected function parseTermMap($map)
+    {
+        $parsed = [];
+        if (!is_array($map)) {
+            return $parsed;
+        }
+        foreach ($map as $key => $terms) {
+            $pairs = $this->parseTermList($terms);
+            if ($pairs) {
+                $parsed[$key] = $pairs;
+            }
+        }
+        return $parsed;
+    }
+
+    /**
+     * Read a JSON mapping file.
+     *
+     * @param string $path
+     * @return array|null Null if the file is unreadable or invalid
+     */
+    protected function readJsonMapping($path)
+    {
+        if (!is_readable($path)) {
+            return null;
+        }
+        $data = json_decode(file_get_contents($path), true);
+        if (!is_array($data)) {
+            return null;
+        }
+        return $data;
+    }
+
+    /**
+     * Read a legacy PHP mapping file (returns an array of key => term).
+     *
+     * @param string $name File name without extension
+     * @return array
+     */
+    protected function readPhpMapping($name)
+    {
+        $path = $this->getMappingDir() . '/' . $name . '.php';
+        if (!is_readable($path)) {
+            return [];
+        }
+        $map = require $path;
+        return is_array($map) ? $map : [];
+    }
+
+    /**
+     * Get the mapping for a Zotero item type.
+     *
+     * Prefers data/mapping/item_types/{itemType}.json. If that does not exist
+     * (or is invalid), falls back to the generic PHP mappings.
+     *
+     * @param array $zoteroItem
+     * @return array Array with resourceClass, fields and creators
+     */
+    protected function getItemTypeMapping(array $zoteroItem)
+    {
+        $itemType = isset($zoteroItem['data']['itemType'])
+            ? $zoteroItem['data']['itemType']
+            : '';
+        if (!isset($this->itemTypeMappings[$itemType])) {
+            $this->itemTypeMappings[$itemType] = $this->loadItemTypeMapping($itemType);
+        }
+        return $this->itemTypeMappings[$itemType];
+    }
+
+    /**
+     * Load and prepare the mapping for an item type.
+     *
+     * @param string $itemType
+     * @return array
+     */
+    protected function loadItemTypeMapping($itemType)
+    {
+        // Zotero item types are camelCase identifiers (e.g. journalArticle).
+        // This also guards against path traversal.
+        if (is_string($itemType) && preg_match('/^[A-Za-z][A-Za-z0-9]*$/', $itemType)) {
+            $data = $this->readJsonMapping(
+                $this->getMappingDir() . '/item_types/' . $itemType . '.json'
+            );
+            if ($data) {
+                return [
+                    'resourceClass' => $this->parseTermList(
+                        isset($data['resourceClass']) ? $data['resourceClass'] : []
+                    ),
+                    'fields' => $this->parseTermMap(
+                        isset($data['fields']) ? $data['fields'] : []
+                    ),
+                    'creators' => $this->parseTermMap(
+                        isset($data['creators']) ? $data['creators'] : []
+                    ),
+                ];
+            }
+        }
+        return $this->getGenericMapping($itemType);
+    }
+
+    /**
+     * Build a mapping for an item type from the generic PHP mapping files.
+     *
+     * @param string $itemType
+     * @return array
+     */
+    protected function getGenericMapping($itemType)
+    {
+        if (null === $this->genericMapping) {
+            $this->genericMapping = [
+                'classes' => $this->parseTermMap($this->readPhpMapping('item_type_map')),
+                'fields' => $this->parseTermMap($this->readPhpMapping('item_field_map')),
+                'creators' => $this->parseTermMap($this->readPhpMapping('creator_type_map')),
+            ];
+        }
+        return [
+            'resourceClass' => isset($this->genericMapping['classes'][$itemType])
+                ? $this->genericMapping['classes'][$itemType]
+                : [],
+            'fields' => $this->genericMapping['fields'],
+            'creators' => $this->genericMapping['creators'],
+        ];
+    }
+
+    /**
+     * Find the first property in a priority list that exists on this site.
+     *
+     * @param array $pairs List of [prefix, localName]
+     * @return array|null [property, "prefix:localName"] or null
+     */
+    protected function findProperty(array $pairs)
+    {
+        foreach ($pairs as $pair) {
+            list($prefix, $localName) = $pair;
+            if (isset($this->properties[$prefix][$localName])) {
+                return [$this->properties[$prefix][$localName], $prefix . ':' . $localName];
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Find the first resource class in a priority list that exists on this site.
+     *
+     * @param array $pairs List of [prefix, localName]
+     * @return \Omeka\Api\Representation\ResourceClassRepresentation|null
+     */
+    protected function findResourceClass(array $pairs)
+    {
+        foreach ($pairs as $pair) {
+            list($prefix, $localName) = $pair;
+            if (isset($this->resourceClasses[$prefix][$localName])) {
+                return $this->resourceClasses[$prefix][$localName];
+            }
+        }
+        return null;
     }
 
     /**
@@ -353,16 +557,10 @@ class Import extends AbstractJob
         if (!isset($zoteroItem['data']['itemType'])) {
             return $omekaItem;
         }
-        $type = $zoteroItem['data']['itemType'];
-        if (!isset($this->itemTypeMap[$type])) {
-            return $omekaItem;
-        }
-        foreach ($this->itemTypeMap[$type] as $prefix => $localName) {
-            if (isset($this->resourceClasses[$prefix][$localName])) {
-                $class = $this->resourceClasses[$prefix][$localName];
-                $omekaItem['o:resource_class'] = ['o:id' => $class->id()];
-                return $omekaItem;
-            }
+        $mapping = $this->getItemTypeMapping($zoteroItem);
+        $class = $this->findResourceClass($mapping['resourceClass']);
+        if ($class) {
+            $omekaItem['o:resource_class'] = ['o:id' => $class->id()];
         }
         return $omekaItem;
     }
@@ -379,29 +577,25 @@ class Import extends AbstractJob
         if (!isset($zoteroItem['data'])) {
             return $omekaItem;
         }
+        $fieldMap = $this->getItemTypeMapping($zoteroItem)['fields'];
         foreach ($zoteroItem['data'] as $key => $value) {
-            if (!$value) {
+            if (!$value || !is_scalar($value) || !isset($fieldMap[$key])) {
                 continue;
             }
-            if (!isset($this->itemFieldMap[$key])) {
+            $found = $this->findProperty($fieldMap[$key]);
+            if (!$found) {
                 continue;
             }
-            foreach ($this->itemFieldMap[$key] as $prefix => $localName) {
-                if (isset($this->properties[$prefix][$localName])) {
-                    $property = $this->properties[$prefix][$localName];
-                    $valueObject = [];
-                    $valueObject['property_id'] = $property->id();
-                    if ('bibo' == $prefix && 'uri' == $localName) {
-                        $valueObject['@id'] = $value;
-                        $valueObject['type'] = 'uri';
-                    } else {
-                        $valueObject['@value'] = $value;
-                        $valueObject['type'] = 'literal';
-                    }
-                    $omekaItem[$property->term()][] = $valueObject;
-                    continue 2;
-                }
+            list($property, $term) = $found;
+            $valueObject = ['property_id' => $property->id()];
+            if (in_array($term, $this->uriTerms, true)) {
+                $valueObject['@id'] = $value;
+                $valueObject['type'] = 'uri';
+            } else {
+                $valueObject['@value'] = $value;
+                $valueObject['type'] = 'literal';
             }
+            $omekaItem[$property->term()][] = $valueObject;
         }
         return $omekaItem;
     }
@@ -418,37 +612,31 @@ class Import extends AbstractJob
         if (!isset($zoteroItem['data']['creators'])) {
             return $omekaItem;
         }
-        $creators = $zoteroItem['data']['creators'];
-        foreach ($creators as $creator) {
-            $creatorType = $creator['creatorType'];
-            if (!isset($this->creatorTypeMap[$creatorType])) {
+        $creatorMap = $this->getItemTypeMapping($zoteroItem)['creators'];
+        foreach ($zoteroItem['data']['creators'] as $creator) {
+            $creatorType = isset($creator['creatorType']) ? $creator['creatorType'] : null;
+            if (!$creatorType || !isset($creatorMap[$creatorType])) {
                 continue;
             }
             $name = [];
-            if (isset($creator['name'])) {
-                $name[] = $creator['name'];
-            }
-            if (isset($creator['firstName'])) {
-                $name[] = $creator['firstName'];
-            }
-            if (isset($creator['lastName'])) {
-                $name[] = $creator['lastName'];
+            foreach (['name', 'firstName', 'lastName'] as $part) {
+                if (isset($creator[$part]) && '' !== $creator[$part]) {
+                    $name[] = $creator[$part];
+                }
             }
             if (!$name) {
                 continue;
             }
-            $name = implode(' ', $name);
-            foreach ($this->creatorTypeMap[$creatorType] as $prefix => $localName) {
-                if (isset($this->properties[$prefix][$localName])) {
-                    $property = $this->properties[$prefix][$localName];
-                    $omekaItem[$property->term()][] = [
-                        '@value' => $name,
-                        'property_id' => $property->id(),
-                        'type' => 'literal',
-                    ];
-                    continue 2;
-                }
+            $found = $this->findProperty($creatorMap[$creatorType]);
+            if (!$found) {
+                continue;
             }
+            list($property) = $found;
+            $omekaItem[$property->term()][] = [
+                '@value' => implode(' ', $name),
+                'property_id' => $property->id(),
+                'type' => 'literal',
+            ];
         }
         return $omekaItem;
     }
